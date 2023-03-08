@@ -3,13 +3,12 @@
 #define BOOST_MPL_LIMIT_VECTOR_SIZE 30  // or whatever you need
 #define BOOST_MPL_LIMIT_MAP_SIZE 30     // or whatever you need
 #define PCL_NO_PRECOMPILE
-#include "boost/mpl/vector/vector30.hpp"
 #include <pcl/io/pcd_io.h>
 #include <pcl/pcl_macros.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 
-
+#include "boost/mpl/vector/vector30.hpp"
 
 struct EIGEN_ALIGN16 Point_Auto_Label {
   PCL_ADD_POINT4D;
@@ -46,6 +45,15 @@ struct EIGEN_ALIGN16 Point_Auto_Label {
   float relabel_2nd_confidence;
   // Reserved
   std::int32_t reserved;
+  // Aligned
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+  // PCL_MAKE_ALIGNED_OPERATOR_NEW  // pcl 1.12
+};
+
+struct EIGEN_ALIGN16 Point_Lane {
+  PCL_ADD_POINT4D;
+  float intensity;
+  float t;
   // Aligned
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
   // PCL_MAKE_ALIGNED_OPERATOR_NEW  // pcl 1.12
@@ -266,4 +274,13 @@ POINT_CLOUD_REGISTER_POINT_STRUCT (
   (std::uint32_t, Line_ID,Line_ID)
   (std::uint32_t, line_type,line_type)
   (std::uint32_t, line_status,line_status)
+)
+
+POINT_CLOUD_REGISTER_POINT_STRUCT (
+  Point_Lane,
+  (float, x, x)
+  (float, y, y)
+  (float, z, z)
+  (float, intensity,intensity)
+  (float, t, t)
 )
