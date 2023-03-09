@@ -1,10 +1,23 @@
 #include "lane.h"
+
+#include <unordered_set>
 #define DEBUG
 namespace smartlabel {
+LaneCloudPtr LaneCluster::print(const double step) {
+  LaneCloudPtr cloud(new LaneCloud);
+  for (double x = start_point.x; x < end_point.x; x += step) {
+    Point_Lane point;
+    point.x = x;
+    point.y = hoff_params.s * x + hoff_params.d;
+    point.z = center_point[2];
+    cloud->push_back(point);
+  }
+  return cloud;
+}
 
 bool LaneFitting::is_lane(const Point_Auto_Label& point) {
   return point.motion_type == this->params_.value_motion_type &&
-         point.semantic_3d_label == this->params_.value_label_type &&
+         point.semantic_3d_label == this->params_.value_lane_type &&
          original_dst(point) < this->params_.value_original_distance;
 }
 
@@ -126,13 +139,14 @@ bool LaneFitting::find_referrence_line(const std::vector<LaneCluster>& clusters,
       }
     }
   }
-  //
+#ifdef DEBUG
   size_t point_size = 0;
   for (auto& cluster : clusters) {
     point_size += cluster.cloud->size();
   }
+
   std::cout << "in ref cluster point size: " << point_size << std::endl;
-  //
+#endif
   size_t ref_id = 0;
   size_t max_size = 0;
   for (auto& pair : hoff_cluster) {
@@ -144,7 +158,7 @@ bool LaneFitting::find_referrence_line(const std::vector<LaneCluster>& clusters,
   if (max_size < 100) {
     return false;
   } else {
-    LaneCloudPtr ref_cluster (new LaneCloud(hoff_cluster[ref_id]));
+    LaneCloudPtr ref_cluster(new LaneCloud(hoff_cluster[ref_id]));
     FitLine1DByRegression(ref_cluster, ref_params, ref_center);
     return true;
   }
@@ -188,6 +202,141 @@ void LaneFitting::classify(std::vector<LaneCluster>& lane_clusters,
   }
 }
 
+void LaneFitting::extract_candidate(const std::vector<SLCloudPtr>& source,
+                                    const std::vector<LaneCluster>& clusters,
+                                    std::vector<SLCloudPtr>& candidates) {
+  std::unordered_map<int, LaneCloudPtr> lane_clouds;
+  for (auto& cluster : clusters) {
+    if (lane_clouds.find(cluster.lane_id) != lane_clouds.end()) {
+      for (auto& point : cluster.cloud->points) {
+        lane_clouds[cluster.lane_id]->push_back(point);
+      }
+    } else {
+      lane_clouds.insert({cluster.lane_id, cluster.cloud});
+    }
+  }
+#ifdef DEBUG
+  for (auto& pair : lane_clouds) {
+    pcl::io::savePCDFileASCII("/home/demo/repos/sl_lane/data/hoff/" +
+                                  std::to_string(pair.first) + ".pcd",
+                              *pair.second);
+  }
+#endif
+
+  std::vector<LaneCluster> straight_lane_cluster;
+  for (auto& pair : lane_clouds) {
+    if (pair.first == -1) {
+      continue;
+    }
+    auto temp_cluster = initialize(pair.second);
+    temp_cluster.lane_id = pair.first;
+    straight_lane_cluster.push_back(temp_cluster);
+  }
+#ifdef DEBUG
+  for (auto& cluster : straight_lane_cluster) {
+    pcl::io::savePCDFileBinary("/home/demo/repos/sl_lane/data/straight/" +
+                                   std::to_string(cluster.lane_id) + ".pcd",
+                               *cluster.print(0.1));
+  }
+#endif
+  candidates.clear();
+  for (size_t i = 0; i < straight_lane_cluster.size(); ++i) {
+    SLCloudPtr temp(new SLCloud);
+    candidates.push_back(temp);
+  }
+  for (const auto& cloud : source) {
+    for (const auto& point : cloud->points) {
+      for (size_t i = 0; i < straight_lane_cluster.size(); ++i) {
+        auto cluster = straight_lane_cluster[i];
+        const double y_dis = fabs(cluster.hoff_params.s * point.x +
+                                  cluster.hoff_params.d - point.y);
+        const double z_dis = fabs(cluster.center_point[2] - point.z);
+        if (y_dis < 0.3 && z_dis < 1.2) {  // width 15cm, 3Σ = 0.09
+          candidates[i]->push_back(point);
+          continue;
+        }
+      }
+    }
+  }
+}
+
+// SLCloudPtr LaneFitting::select_candidate(const SLCloudPtr& candidates) {
+//   double sum = 0;
+//   for (auto& point : candidates->points) {
+//     sum += point.intensity;
+//   }
+//   const double mean = sum / candidates->points.size();
+//   // calculate RootMeanSquareError
+//   double rmse = 0;
+//   for (auto& point : candidates->points) {
+//     rmse += (point.intensity - mean) * (point.intensity - mean);
+//   }
+//   rmse = sqrt(rmse / candidates->points.size());
+//   std::cout << "mean: " << mean << ", rmse: " << rmse << std::endl;
+//   // select points
+//   SLCloudPtr selected(new SLCloud);
+//   for (auto& point : candidates->points) {
+//     if (point.intensity - mean > 2 * rmse) {
+//       selected->push_back(point);
+//     }
+//   }
+// }
+
+SLCloudPtr LaneFitting::adapte_intesnity_filter(const SLCloudPtr& candidates,
+                                                const double radius,
+                                                const double threshold) {
+  pcl::KdTreeFLANN<Point_Auto_Label> kdtree;
+  kdtree.setInputCloud(candidates);
+  SLCloudPtr selected(new SLCloud);
+  // search neighbors points
+  for (auto& point : candidates->points) {
+    std::vector<int> pointIdxRadiusSearch;
+    std::vector<float> pointRadiusSquaredDistance;
+    if (kdtree.radiusSearch(point, radius, pointIdxRadiusSearch,
+                            pointRadiusSquaredDistance) > 0) {
+      double sum = 0;
+      for (auto& idx : pointIdxRadiusSearch) {
+        sum += candidates->points[idx].intensity;
+      }
+      // calculate mean
+      double mean = sum / pointIdxRadiusSearch.size();
+      if (point.intensity - mean > threshold) {
+        selected->push_back(point);
+      }
+    }
+  }
+  return selected;
+}
+
+SLCloudPtr LaneFitting::neiborhood_filter(const SLCloudPtr& candidates,
+                                          const double radius,
+                                          const size_t threshold) {
+  pcl::KdTreeFLANN<Point_Auto_Label> kdtree;
+  kdtree.setInputCloud(candidates);
+  SLCloudPtr selected(new SLCloud);
+  // search neighbors points
+  for (auto& point : candidates->points) {
+    std::vector<int> pointIdxRadiusSearch;
+    std::vector<float> pointRadiusSquaredDistance;
+    if (kdtree.radiusSearch(point, radius, pointIdxRadiusSearch,
+                            pointRadiusSquaredDistance) > 0) {
+      if (pointIdxRadiusSearch.size() > threshold) {
+        selected->push_back(point);
+      }
+    }
+  }
+  return selected;
+}
+
+void check_size(const std::vector<SLCloudPtr>& source,
+                const std::string& flag) {
+  size_t sum = 0;
+  for (const auto& cloud : source) {
+    sum += cloud->points.size();
+  }
+  std::cout << flag << " total size: " << sum << std::endl;
+}
+
 void LaneFitting::fit(const std::vector<SLCloudPtr>& source,
                       std::vector<LaneSegment>& result) {
   /*
@@ -204,38 +353,77 @@ void LaneFitting::fit(const std::vector<SLCloudPtr>& source,
   others
     hermite spline
   */
+
+  check_size(source, "start");
   LaneCloudPtr filtered = raw_filter(source);
+  check_size(source, "after raw filter");
   std::vector<LaneCloudPtr> pc_clusters;
+
   dbscan(this->params_.dbscan_parameters, filtered, pc_clusters);
   std::vector<LaneCluster> clusters;
   initialize(pc_clusters, clusters);
   Hoff ref_params;
   Eigen::Vector4f ref_center;
+
   if (find_referrence_line(clusters, ref_params, ref_center)) {
     classify(clusters, ref_params, ref_center);
   } else {
     std::cout << "no reference line found" << std::endl;
   }
-
-#ifdef DEBUG
-  std::unordered_map<int, LaneCloudPtr> lane_clouds;
-  for (auto& cluster : clusters) {
-    if (lane_clouds.find(cluster.lane_id) != lane_clouds.end()) {
-      for (auto& point : cluster.cloud->points) {
-        lane_clouds[cluster.lane_id]->push_back(point);
-      }
-    } else {
-      lane_clouds.insert({cluster.lane_id, cluster.cloud});
+  std::vector<SLCloudPtr> candidates;
+  extract_candidate(source, clusters, candidates);
+  check_size(source, "after extract candidate");
+  // #ifdef DEBUG
+  //   for (size_t i = 0; i < candidates.size(); ++i) {
+  //     pcl::io::savePCDFileBinary(
+  //         "/home/demo/repos/sl_lane/data/straight/candidate_" +
+  //             std::to_string(i) + ".pcd",
+  //         *candidates[i]);
+  //   }
+  // #endif
+  std::vector<std::unordered_set<size_t>> points_to_label(
+      source.size(), std::unordered_set<size_t>{});
+  for (size_t i = 0; i < candidates.size(); ++i) {
+    auto intensity_filtered_cloud =
+        adapte_intesnity_filter(candidates[i], 0.5, 5);
+    auto neiborhood_filtered_cloud =
+        neiborhood_filter(intensity_filtered_cloud, 0.2, 10);
+    // #ifdef DEBUG
+    //     pcl::io::savePCDFileBinary(
+    //         "/home/demo/repos/sl_lane/data/straight/fine_candidate_" +
+    //             std::to_string(i) + ".pcd",
+    //         *intensity_filtered_cloud);
+    //     pcl::io::savePCDFileBinary(
+    //         "/home/demo/repos/sl_lane/data/straight/neiborhood_candidate_" +
+    //             std::to_string(i) + ".pcd",
+    //         *neiborhood_filtered_cloud);
+    // #endif
+    for (const auto& point : neiborhood_filtered_cloud->points) {
+      points_to_label[point.frame_index].insert(point.point_index);
     }
   }
-  size_t sum_points = 0;
-  for (auto& pair : lane_clouds) {
-    sum_points += pair.second->size();
-    pcl::io::savePCDFileASCII("/home/demo/repos/sl_lane/data/hoff/" +
-                                  std::to_string(pair.first) + ".pcd",
-                              *pair.second);
-  }
-  std::cout << "Saved points: " << sum_points << std::endl;
+
+  check_size(source, "after neiborhood filter");
+  for (size_t i = 0; i < source.size(); ++i) {
+    // no & so I actually copy the pointer
+    auto src_cloud = source[i];
+    for (auto& point : src_cloud->points) {
+      if (points_to_label[point.frame_index].count(point.point_index)) {
+        point.relabel = this->params_.value_lane_type;
+        point.motion_type = this->params_.value_motion_type;
+      } else {
+        if (point.relabel == this->params_.value_lane_type) {
+          point.relabel = this->params_.value_ground_type;
+        }
+      }
+    }
+#ifdef DEBUG
+    pcl::io::savePCDFileBinary(
+        "/home/demo/repos/sl_lane/data/res/" + std::to_string(i) + ".pcd",
+        *src_cloud);
 #endif
+  }
+  check_size(source, "end");
 }
+
 }  // namespace smartlabel

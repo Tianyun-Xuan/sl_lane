@@ -4,6 +4,8 @@
 // clang-format on
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/io/pcd_io.h>
+#include <pcl/kdtree/kdtree.h>
+#include <pcl/kdtree/kdtree_flann.h>
 
 // #include <boost/geometry.hpp>
 // #include <boost/geometry/geometries/geometries.hpp>
@@ -51,6 +53,8 @@ struct LaneCluster {
   float tmax;
   float deplacement;
   float ratio;
+
+  LaneCloudPtr print(const double step);
 };
 
 struct FitParameters {
@@ -58,7 +62,8 @@ struct FitParameters {
 
   // semantic filter parameters
   uint32_t value_motion_type = 2;
-  uint32_t value_label_type = 10;
+  uint32_t value_lane_type = 10;
+  uint32_t value_ground_type = 1;
   float value_original_distance = 100.f;
 };
 
@@ -82,6 +87,18 @@ class LaneFitting {
                 const Eigen::Vector4f& ref_center);
 
   float distance(const Point_Lane& point) const;
+
+  void extract_candidate(const std::vector<SLCloudPtr>& source,
+                         const std::vector<LaneCluster>& clusters,
+                         std::vector<SLCloudPtr>& candidates);
+
+  // SLCloudPtr select_candidate(const SLCloudPtr& candidates);
+
+  SLCloudPtr adapte_intesnity_filter(const SLCloudPtr& candidates,
+                                     const double radius,
+                                     const double threshold);
+  SLCloudPtr neiborhood_filter(const SLCloudPtr& candidates,
+                               const double radius, const size_t threshold);
 
   void fit(const std::vector<SLCloudPtr>& source,
            std::vector<LaneSegment>& result);
