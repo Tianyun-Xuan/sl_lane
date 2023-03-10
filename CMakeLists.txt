@@ -5,7 +5,7 @@ add_compile_options(-fPIC)
 set(CMAKE_CXX_STANDARD 17)
 set(CXX_FLAGS "-std=c++17 -lstdc++fs")
 # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O1 -Wall -g -pthread -fsanitize=address -fsanitize-recover=all  -fsanitize=leak")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -O1 -Wall -g -pthread")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -Wall -g -pthread")
 set(CMAKE_BUILD_TYPE "Debug")
 set(PACKAGE_VERSION 1.0)
 

@@ -54,6 +54,7 @@ struct EIGEN_ALIGN16 Point_Lane {
   PCL_ADD_POINT4D;
   float intensity;
   float t;
+  double timestamp;
   // Aligned
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
   // PCL_MAKE_ALIGNED_OPERATOR_NEW  // pcl 1.12
@@ -283,4 +284,5 @@ POINT_CLOUD_REGISTER_POINT_STRUCT (
   (float, z, z)
   (float, intensity,intensity)
   (float, t, t)
+  (double, timestamp, timestamp)
 )

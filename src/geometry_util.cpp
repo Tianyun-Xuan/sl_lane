@@ -181,7 +181,7 @@ void dbscan(const DBscan_Parameters &parameters, const LaneCloudPtr &source,
       nn_size =
           kdtree_.radiusSearch(cloud_index, eps, nn_indices, nn_distances);
       if (nn_size >= minPts) {  // seems useless
-        for (size_t j = 0; j < nn_size; j++) {
+        for (size_t j = 0; j < nn_size; ++j) {
           if (types[nn_indices[j]] == UNPROCESSED) {
             seed_queue.push_back(nn_indices[j]);
             types[nn_indices[j]] = PROCESSING;
@@ -299,6 +299,7 @@ bool cloud_discretized(const LaneCloudPtr &source, float invterval, float tmin,
   std::vector<double> xlist(t_size, 0.f);
   std::vector<double> ylist(t_size, 0.f);
   std::vector<double> zlist(t_size, 0.f);
+  std::vector<double> time_list(t_size, 0.f);
   std::vector<int> count_list(t_size, 0);
 
   // discrete
@@ -312,6 +313,7 @@ bool cloud_discretized(const LaneCloudPtr &source, float invterval, float tmin,
     xlist[grid_idx] += point.x;
     ylist[grid_idx] += point.y;
     zlist[grid_idx] += point.z;
+    time_list[grid_idx] += point.timestamp;
     ++count_list[grid_idx];
   }
   for (size_t i = 0; i < t_size; ++i) {
@@ -321,10 +323,65 @@ bool cloud_discretized(const LaneCloudPtr &source, float invterval, float tmin,
       tmp_point.x = xlist[i] * inv_count;
       tmp_point.y = ylist[i] * inv_count;
       tmp_point.z = zlist[i] * inv_count;
+      // (TODO: intensity is fixed here to highlight the lane points)
       tmp_point.intensity = 254.f;
+      tmp_point.timestamp = time_list[i] * inv_count;
       result->push_back(tmp_point);
     }
   }
   return true;
 }
+
+void NormalLine(const LaneCloudPtr &source, const double radius,
+                pcl::PointCloud<pcl::Normal>::Ptr &cloud_normals) {
+  // Create the normal estimation class, and pass the input dataset to it
+  pcl::NormalEstimation<Point_Lane, pcl::Normal> estimator;
+  estimator.setInputCloud(source);
+  // Create an empty kdtree representation, and pass it to the normal estimation
+  // object.
+  // Its content will be filled inside the object, based on the given input
+  // dataset (as no other search surface is given).
+  pcl::search::KdTree<Point_Lane>::Ptr tree(
+      new pcl::search::KdTree<Point_Lane>());
+  estimator.setSearchMethod(tree);
+  // Use all neighbors in a sphere of radius 3cm
+  estimator.setRadiusSearch(radius);
+  // Compute the features
+  estimator.compute(*cloud_normals);
+}
+
+void TangentLine(const LaneCloudPtr &source, const double radius,
+                 std::vector<pcl::ModelCoefficients::Ptr> &coefficients) {
+  coefficients.clear();
+  // Calculate tangant of start and end point
+  pcl::KdTreeFLANN<Point_Lane> kdtree;
+  kdtree.setInputCloud(source);
+  LaneCloudPtr point_tangent(new LaneCloud);
+  std::vector<int> pointIdxNKNSearch;
+  std::vector<float> pointNKNSquaredDistance;
+
+  kdtree.nearestKSearch(source->points.front(), radius, pointIdxNKNSearch,
+                        pointNKNSquaredDistance);
+  for (const auto &idx : pointIdxNKNSearch) {
+    point_tangent->push_back(source->points[idx]);
+  }
+  pcl::ModelCoefficients::Ptr start_tangent_coeff(new pcl::ModelCoefficients);
+  if (fit_line_3d(point_tangent, start_tangent_coeff))
+    coefficients.push_back(start_tangent_coeff);
+
+  // clear
+  point_tangent->clear();
+  pointIdxNKNSearch.clear();
+  pointNKNSquaredDistance.clear();
+
+  kdtree.nearestKSearch(source->points.back(), radius, pointIdxNKNSearch,
+                        pointNKNSquaredDistance);
+  for (const auto &idx : pointIdxNKNSearch) {
+    point_tangent->push_back(source->points[idx]);
+  }
+  pcl::ModelCoefficients::Ptr end_tangent_coeff(new pcl::ModelCoefficients);
+  if (fit_line_3d(point_tangent, end_tangent_coeff))
+    coefficients.push_back(end_tangent_coeff);
+}
+
 }  // namespace smartlabel

@@ -21,69 +21,127 @@ bool LaneFitting::is_lane(const Point_Auto_Label& point) {
          original_dst(point) < this->params_.value_original_distance;
 }
 
-LaneCloudPtr LaneFitting::raw_filter(const std::vector<SLCloudPtr>& source) {
-  LaneCloudPtr result(new LaneCloud);
+bool LaneFitting::is_ground(const Point_Auto_Label& point) {
+  return point.motion_type == this->params_.value_motion_type &&
+         point.semantic_3d_label == this->params_.value_ground_type &&
+         original_dst(point) < this->params_.value_original_distance;
+}
+
+void LaneFitting::label_filter(const std::vector<SLCloudPtr>& source,
+                               const LaneCloudPtr& lane_cloud,
+                               const LaneCloudPtr& ground_cloud) {
+  lane_cloud->clear();
+  ground_cloud->clear();
   for (const auto& cloud : source) {
     for (const auto& point : cloud->points) {
+      m_x_max_ = std::fmax(m_x_max_, point.x);
+      m_x_min_ = std::fmin(m_x_min_, point.x);
+      m_y_max_ = std::fmax(m_y_max_, point.y);
+      m_y_min_ = std::fmin(m_y_min_, point.y);
       if (is_lane(point)) {
         Point_Lane lane_point;
         lane_point.x = point.x;
         lane_point.y = point.y;
         lane_point.z = point.z;
         lane_point.intensity = point.intensity;
+        lane_point.timestamp = point.timestamp;
         lane_point.t = 0;
-        result->push_back(lane_point);
+        lane_cloud->push_back(lane_point);
+        ground_cloud->push_back(lane_point);
+      } else if (is_ground(point)) {
+        Point_Lane ground_point;
+        ground_point.x = point.x;
+        ground_point.y = point.y;
+        ground_point.z = point.z;
+        ground_point.intensity = point.intensity;
+        ground_point.timestamp = point.timestamp;
+        ground_point.t = 0;
+        ground_cloud->push_back(ground_point);
+        continue;
       }
     }
   }
-  return result;
 }
 
+// (TODO: design a class for this)
 LaneCluster LaneFitting::initialize(const LaneCloudPtr& source) {
-  Eigen::Vector4f center_point;
-  Hoff hoff_coeff;
-  FitLine1DByRegression(source, hoff_coeff, center_point);
-  float t_min = std::numeric_limits<float>::max();
-  float t_max = -(std::numeric_limits<float>::max)();
-  for (auto& point : source->points) {
-    point.t = (point.x - center_point[0]) * hoff_coeff.tx +
-              (point.y - center_point[1]) * hoff_coeff.ty;
-    t_max = std::max(point.t, t_max);
-    t_min = std::min(point.t, t_min);
-  }
-  Point_Lane start_point;
-  Point_Lane end_point;
-  start_point.x = center_point[0] + t_min * hoff_coeff.tx;
-  start_point.y = center_point[1] + t_min * hoff_coeff.ty;
-  start_point.z = 0.f;
-  end_point.x = center_point[0] + t_max * hoff_coeff.tx;
-  end_point.y = center_point[1] + t_max * hoff_coeff.ty;
-  start_point.z = 0.f;
-  LaneCloudPtr lane_cloud_discretized(new LaneCloud);
-  cloud_discretized(source, 0.2, t_min, t_max, lane_cloud_discretized);
-  LaneCloudPtr lane_cloud_smoothed(new LaneCloud);
-
-  SGFilter sg_filter;
-  sg_filter.setRadius(2.f);
-  sg_filter.setInputCloud(lane_cloud_discretized);
-  sg_filter.filter(lane_cloud_smoothed);
-
+  // Initialize the cluster
   LaneCluster cluster;
   cluster.lane_id = -1;
   cluster.cloud = source;
-  cluster.cloud_smoothed = lane_cloud_smoothed;
-  cluster.start_point = start_point;
-  cluster.end_point = end_point;
-  cluster.center_point = center_point;
-  cluster.hoff_params = hoff_coeff;
-  cluster.tmin = t_min;
-  cluster.tmax = t_max;
-  cluster.deplacement = t_max - t_min;
+  cluster.tmin = std::numeric_limits<float>::max();
+  cluster.tmax = -(std::numeric_limits<float>::max)();
+
+  // Fit the lane cloud
+  FitLine1DByRegression(source, cluster.hoff_params, cluster.center_point);
+
+  double ts_sum = 0.f;
+  for (auto& point : source->points) {
+    point.t = (point.x - cluster.center_point[0]) * cluster.hoff_params.tx +
+              (point.y - cluster.center_point[1]) * cluster.hoff_params.ty;
+    cluster.tmax = std::fmax(point.t, cluster.tmax);
+    cluster.tmin = std::fmin(point.t, cluster.tmin);
+    ts_sum += point.timestamp;
+  }
+  cluster.deplacement = cluster.tmax - cluster.tmin;
+  // (Deprecated: replace with start_point and end_point of cloud discretized)
+  // Point_Lane start_point;
+  // Point_Lane end_point;
+  // start_point.x = center_point[0] + t_min * hoff_coeff.tx;
+  // start_point.y = center_point[1] + t_min * hoff_coeff.ty;
+  // start_point.z = 0.f;
+  // end_point.x = center_point[0] + t_max * hoff_coeff.tx;
+  // end_point.y = center_point[1] + t_max * hoff_coeff.ty;
+  // start_point.z = 0.f;
+  LaneCloudPtr lane_cloud_discretized(new LaneCloud);
+  // (TODO: parameters)
+  cloud_discretized(source, 0.2, cluster.tmin, cluster.tmax,
+                    lane_cloud_discretized);
+  LaneCloudPtr temp_cloud_smoothed(new LaneCloud);
+  cluster.cloud_smoothed.swap(temp_cloud_smoothed);
+  // Smooth the lane cloud
+  SGFilter sg_filter;
+  // (TODO: parameters)
+  sg_filter.setRadius(2.f);
+  sg_filter.setInputCloud(lane_cloud_discretized);
+  sg_filter.filter(cluster.cloud_smoothed);
+
+  cluster.start_point = cluster.cloud_smoothed->points.front();
+  cluster.end_point = cluster.cloud_smoothed->points.back();
+
+  std::vector<pcl::ModelCoefficients::Ptr> coefficients;
+  // (TODO: parameters)
+  TangentLine(cluster.cloud_smoothed, 2.f, coefficients);
+  assert(coefficients.size() == 2);
+  Eigen::Vector4f start_point_tangent(coefficients[0]->values[3],
+                                      coefficients[0]->values[4],
+                                      coefficients[0]->values[5], 0.f);
+  Eigen::Vector4f end_point_tangent(coefficients[1]->values[3],
+                                    coefficients[1]->values[4],
+                                    coefficients[1]->values[5], 0.f);
+  //(TODO) I am not sure the 4th element of the vector is 0 or 1
+  Eigen::Vector4f center_start =
+      cluster.center_point -
+      Eigen::Vector4f(cluster.start_point.x, cluster.start_point.y,
+                      cluster.start_point.z, cluster.center_point[3]);
+  Eigen::Vector4f center_end =
+      cluster.center_point -
+      Eigen::Vector4f(cluster.end_point.x, cluster.end_point.y,
+                      cluster.end_point.z, cluster.center_point[3]);
+
+  cluster.start_point_tangent = start_point_tangent.dot(center_start) > 0
+                                    ? start_point_tangent
+                                    : -start_point_tangent;
+  cluster.end_point_tangent = end_point_tangent.dot(center_end) > 0
+                                  ? end_point_tangent
+                                  : -end_point_tangent;
   cluster.ratio =
-      accumulate_distance(lane_cloud_smoothed) / cluster.deplacement;
+      accumulate_distance(cluster.cloud_smoothed) / cluster.deplacement;
+  cluster.timestamp = ts_sum / source->size();
 
   // ratio value is not accurate
-  if (cluster.ratio > 1.2) {
+  // (TODO: parameters)
+  if (cluster.ratio > 1.15) {
     cluster.lane_type = LaneType::CURVE;
   } else {
     cluster.lane_type = LaneType::STRAIGHT;
@@ -180,9 +238,8 @@ void LaneFitting::classify(std::vector<LaneCluster>& lane_clusters,
     max_dist = std::max(max_dist, dist_y);
   }
 
-  // Lane width
+  // (TODO: Parameters) Lane width
   const float dist_step = 3.75;
-  // const size_t dis_num = (max_dist - min_dist) / dist_step + 1;
 
   for (size_t i = 0; i < lane_clusters.size(); ++i) {
     if (lane_clusters[i].lane_type != LaneType::STRAIGHT) {
@@ -193,11 +250,34 @@ void LaneFitting::classify(std::vector<LaneCluster>& lane_clusters,
     double deplace =
         std::min(dists[i] - (dist_id * dist_step + min_dist),
                  ((dist_id + 1) * dist_step + min_dist - dists[i]));
-    // threshold
+    // (TODO: Parameters) distance threshold
     if (deplace < 0.25) {
       lane_clusters[i].lane_id = dist_id;
     } else {
       lane_clusters[i].lane_id = -1;
+    }
+  }
+}
+void LaneFitting::ground_map(const LaneCloudPtr& ground_cloud) {
+  const size_t x_size = (m_x_max_ - m_x_min_) / this->params_.x_step + 1;
+  const size_t y_size = (m_y_max_ - m_y_min_) / this->params_.y_step + 1;
+  m_height_map_.resize(x_size, std::vector<double>(y_size, 0));
+  m_intensity_map_.resize(x_size, std::vector<double>(y_size, 0));
+  std::vector<std::vector<size_t>> count_map(x_size,
+                                             std::vector<size_t>(y_size, 0));
+  for (auto& point : ground_cloud->points) {
+    const size_t x_idx = (point.x - m_x_min_) / params_.x_step;
+    const size_t y_idx = (point.y - m_y_min_) / params_.y_step;
+    m_height_map_[x_idx][y_idx] += point.z;
+    m_intensity_map_[x_idx][y_idx] += point.intensity;
+    count_map[x_idx][y_idx] += 1;
+  }
+  for (size_t i = 0; i < x_size; ++i) {
+    for (size_t j = 0; j < y_size; ++j) {
+      if (count_map[i][j] > 0) {
+        m_height_map_[i][j] /= count_map[i][j];
+        m_intensity_map_[i][j] /= count_map[i][j];
+      }
     }
   }
 }
@@ -248,10 +328,12 @@ void LaneFitting::extract_candidate(const std::vector<SLCloudPtr>& source,
     for (const auto& point : cloud->points) {
       for (size_t i = 0; i < straight_lane_cluster.size(); ++i) {
         auto cluster = straight_lane_cluster[i];
+        const size_t x_idx = (point.x - m_x_min_) / params_.x_step;
+        const size_t y_idx = (point.y - m_y_min_) / params_.y_step;
         const double y_dis = fabs(cluster.hoff_params.s * point.x +
                                   cluster.hoff_params.d - point.y);
-        const double z_dis = fabs(cluster.center_point[2] - point.z);
-        if (y_dis < 0.3 && z_dis < 1.2) {  // width 15cm, 3Σ = 0.09
+        const double z_dis = fabs(m_height_map_[x_idx][y_idx] - point.z);
+        if (y_dis < 0.3 && z_dis < 0.09) {  // width 15cm, 3Σ = 0.09
           candidates[i]->push_back(point);
           continue;
         }
@@ -337,42 +419,53 @@ void check_size(const std::vector<SLCloudPtr>& source,
   std::cout << flag << " total size: " << sum << std::endl;
 }
 
+void endpoint_match(const std::vector<LaneCluster>& clusters,
+                    std::vector<size_t>& cluster_id) {}
+
 void LaneFitting::fit(const std::vector<SLCloudPtr>& source,
                       std::vector<LaneSegment>& result) {
-  /*
-  0. load pcd
-  1. label -> raw_points + start&end
-  2. dbscan -> raw_clusters (may have sidewalkers, charaters, etc.)
-  3. for each cluster find start&end&center, fit line by start&end, calculate
-  t for each points
-  4. cloud discretized -> StraightLine,CubicLane,Others
-  if StraightLine
-    5. In HoffSpace -> params + centers
-    6. find_referrence_line -> ref_params, ref_center
-    7. distance to ref_line + lane_size -> different lanes
-  others
-    hermite spline
-  */
+  // Collect Lane Points and Lane + Ground Points
+  LaneCloudPtr filtered(new LaneCloud);
+  LaneCloudPtr ground_cloud(new LaneCloud);
+  label_filter(source, filtered, ground_cloud);
 
-  check_size(source, "start");
-  LaneCloudPtr filtered = raw_filter(source);
-  check_size(source, "after raw filter");
+  // DBSCAN
   std::vector<LaneCloudPtr> pc_clusters;
-
   dbscan(this->params_.dbscan_parameters, filtered, pc_clusters);
+
+  // Calculate Lane Parameters and sort by timestamp
   std::vector<LaneCluster> clusters;
   initialize(pc_clusters, clusters);
-  Hoff ref_params;
-  Eigen::Vector4f ref_center;
+  std::sort(clusters.begin(), clusters.end(),
+            [](const LaneCluster& a, const LaneCluster& b) {
+              return a.timestamp < b.timestamp;
+            });
 
-  if (find_referrence_line(clusters, ref_params, ref_center)) {
-    classify(clusters, ref_params, ref_center);
-  } else {
-    std::cout << "no reference line found" << std::endl;
+#ifdef DEBUG
+  for (size_t i = 0; i < clusters.size(); ++i) {
+    pcl::io::savePCDFileBinary(
+        "/home/demo/repos/sl_lane/data/clusters/" + std::to_string(i) + ".pcd",
+        *clusters[i].cloud);
+    pcl::io::savePCDFileBinary(
+        "/home/demo/repos/sl_lane/data/debug/" + std::to_string(i) + ".pcd",
+        *clusters[i].cloud_smoothed);
+    std::cout << "cluster " << i
+              << " start_tangent: " << clusters[i].start_point_tangent
+              << " end_tangent: " << clusters[i].end_point_tangent << std::endl;
   }
-  std::vector<SLCloudPtr> candidates;
-  extract_candidate(source, clusters, candidates);
-  check_size(source, "after extract candidate");
+#endif
+  //   Hoff ref_params;
+  //   Eigen::Vector4f ref_center;
+
+  //   if (find_referrence_line(clusters, ref_params, ref_center)) {
+  //     classify(clusters, ref_params, ref_center);
+  //   } else {
+  //     std::cout << "no reference line found" << std::endl;
+  //   }
+  //   ground_map(ground_cloud);
+
+  //   std::vector<SLCloudPtr> candidates;
+  //   extract_candidate(source, clusters, candidates);
   // #ifdef DEBUG
   //   for (size_t i = 0; i < candidates.size(); ++i) {
   //     pcl::io::savePCDFileBinary(
@@ -381,49 +474,47 @@ void LaneFitting::fit(const std::vector<SLCloudPtr>& source,
   //         *candidates[i]);
   //   }
   // #endif
-  std::vector<std::unordered_set<size_t>> points_to_label(
-      source.size(), std::unordered_set<size_t>{});
-  for (size_t i = 0; i < candidates.size(); ++i) {
-    auto intensity_filtered_cloud =
-        adapte_intesnity_filter(candidates[i], 0.5, 5);
-    auto neiborhood_filtered_cloud =
-        neiborhood_filter(intensity_filtered_cloud, 0.2, 10);
-    // #ifdef DEBUG
-    //     pcl::io::savePCDFileBinary(
-    //         "/home/demo/repos/sl_lane/data/straight/fine_candidate_" +
-    //             std::to_string(i) + ".pcd",
-    //         *intensity_filtered_cloud);
-    //     pcl::io::savePCDFileBinary(
-    //         "/home/demo/repos/sl_lane/data/straight/neiborhood_candidate_" +
-    //             std::to_string(i) + ".pcd",
-    //         *neiborhood_filtered_cloud);
-    // #endif
-    for (const auto& point : neiborhood_filtered_cloud->points) {
-      points_to_label[point.frame_index].insert(point.point_index);
-    }
-  }
+  //   std::vector<std::unordered_set<size_t>> points_to_label(
+  //       source.size(), std::unordered_set<size_t>{});
+  //   for (size_t i = 0; i < candidates.size(); ++i) {
+  //     auto intensity_filtered_cloud =
+  //         adapte_intesnity_filter(candidates[i], 1, 5);
+  //     auto neiborhood_filtered_cloud =
+  //         neiborhood_filter(intensity_filtered_cloud, 0.2, 10);
+  // #ifdef DEBUG
+  //     pcl::io::savePCDFileBinary(
+  //         "/home/demo/repos/sl_lane/data/straight/fine_candidate_" +
+  //             std::to_string(i) + ".pcd",
+  //         *intensity_filtered_cloud);
+  //     pcl::io::savePCDFileBinary(
+  //         "/home/demo/repos/sl_lane/data/straight/neiborhood_candidate_" +
+  //             std::to_string(i) + ".pcd",
+  //         *neiborhood_filtered_cloud);
+  // #endif
+  //     for (const auto& point : neiborhood_filtered_cloud->points) {
+  //       points_to_label[point.frame_index-1].insert(point.point_index);
+  //     }
+  //   }
 
-  check_size(source, "after neiborhood filter");
-  for (size_t i = 0; i < source.size(); ++i) {
-    // no & so I actually copy the pointer
-    auto src_cloud = source[i];
-    for (auto& point : src_cloud->points) {
-      if (points_to_label[point.frame_index].count(point.point_index)) {
-        point.relabel = this->params_.value_lane_type;
-        point.motion_type = this->params_.value_motion_type;
-      } else {
-        if (point.relabel == this->params_.value_lane_type) {
-          point.relabel = this->params_.value_ground_type;
-        }
-      }
-    }
-#ifdef DEBUG
-    pcl::io::savePCDFileBinary(
-        "/home/demo/repos/sl_lane/data/res/" + std::to_string(i) + ".pcd",
-        *src_cloud);
-#endif
-  }
-  check_size(source, "end");
+  //   for (size_t i = 0; i < source.size(); ++i) {
+  //     // no & so I actually copy the pointer
+  //     auto src_cloud = source[i];
+  //     for (auto& point : src_cloud->points) {
+  //       if (points_to_label[point.frame_index-1].count(point.point_index)) {
+  //         point.relabel = this->params_.value_lane_type;
+  //         point.motion_type = this->params_.value_motion_type;
+  //       } else {
+  //         if (point.relabel == this->params_.value_lane_type) {
+  //           point.relabel = this->params_.value_ground_type;
+  //         }
+  //       }
+  //     }
+  // #ifdef DEBUG
+  //     pcl::io::savePCDFileBinary(
+  //         "/home/demo/repos/sl_lane/data/res/0002/" + std::to_string(i) +
+  //         ".pcd", *src_cloud);
+  // #endif
+  //   }
 }
 
 }  // namespace smartlabel

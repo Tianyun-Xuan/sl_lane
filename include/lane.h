@@ -46,6 +46,8 @@ struct LaneCluster {
   LaneCloudPtr cloud_smoothed;
   Point_Lane start_point;
   Point_Lane end_point;
+  Eigen::Vector4f start_point_tangent;
+  Eigen::Vector4f end_point_tangent;
   Eigen::Vector4f center_point;
   Hoff hoff_params;
   LaneType lane_type;
@@ -53,7 +55,7 @@ struct LaneCluster {
   float tmax;
   float deplacement;
   float ratio;
-
+  double timestamp;
   LaneCloudPtr print(const double step);
 };
 
@@ -65,21 +67,40 @@ struct FitParameters {
   uint32_t value_lane_type = 10;
   uint32_t value_ground_type = 1;
   float value_original_distance = 100.f;
+  double x_step = 2;
+  double y_step = 1;
 };
 
 class LaneFitting {
  private:
   FitParameters params_;
+  double m_x_min_;
+  double m_y_min_;
+  double m_x_max_;
+  double m_y_max_;
+  std::vector<std::vector<double>> m_height_map_;
+  std::vector<std::vector<double>> m_intensity_map_;
 
  public:
-  LaneFitting(const FitParameters& params) : params_(params){};
+  LaneFitting(const FitParameters& params)
+      : params_(params),
+        m_x_min_(std::numeric_limits<double>::max()),
+        m_y_min_(std::numeric_limits<double>::max()),
+        m_x_max_(-std::numeric_limits<double>::max()),
+        m_y_max_(-std::numeric_limits<double>::max()){};
   ~LaneFitting() = default;
 
   bool is_lane(const Point_Auto_Label& point);
-  LaneCloudPtr raw_filter(const std::vector<SLCloudPtr>& source);
+  bool is_ground(const Point_Auto_Label& point);
+  void label_filter(const std::vector<SLCloudPtr>& source,
+                    const LaneCloudPtr& lane_cloud,
+                    const LaneCloudPtr& ground_cloud);
   void initialize(const std::vector<LaneCloudPtr>& source,
                   std::vector<LaneCluster>& result);
   LaneCluster initialize(const LaneCloudPtr& source);
+
+  // void endpoint_match(const std::vector<LaneCluster>& clusters,
+  // std::vector<size_t>& cluster_id);
 
   bool find_referrence_line(const std::vector<LaneCluster>& clusters,
                             Hoff& ref_params, Eigen::Vector4f& ref_center);
@@ -91,6 +112,8 @@ class LaneFitting {
   void extract_candidate(const std::vector<SLCloudPtr>& source,
                          const std::vector<LaneCluster>& clusters,
                          std::vector<SLCloudPtr>& candidates);
+
+  void ground_map(const LaneCloudPtr& ground_cloud);
 
   // SLCloudPtr select_candidate(const SLCloudPtr& candidates);
 

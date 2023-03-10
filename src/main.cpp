@@ -82,7 +82,7 @@ void test_initialize() {
   }
 }
 void func() {
-  const std::string map_dir = "/home/demo/repos/sl_lane/data/frames";
+  const std::string map_dir = "/home/demo/repos/sl_lane/data/frames/0002/";
 
   // clear and reserve
   std::vector<std::string> paths{};
@@ -93,7 +93,10 @@ void func() {
       paths.emplace_back(filename);
     }
   }
-  std::sort(paths.begin(), paths.end());
+  std::sort(paths.begin(), paths.end(),
+            [](const std::string& a, const std::string& b) -> bool {
+              return std::stoi(a) < std::stoi(b);
+            });
 
   std::vector<SLCloudPtr> clouds{};
 

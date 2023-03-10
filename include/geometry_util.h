@@ -4,6 +4,7 @@
 // clang-format on
 #include <pcl/ModelCoefficients.h>
 #include <pcl/common/centroid.h>
+#include <pcl/features/normal_3d.h>
 #include <pcl/kdtree/kdtree_flann.h>
 #include <pcl/search/kdtree.h>
 
@@ -72,5 +73,11 @@ bool cloud_discretized(const LaneCloudPtr &source, float invterval, float tmin,
 void FitLine1DByRegression(const LaneCloudPtr &source, Hoff &parameters,
                            Eigen::Vector4f &centroid);
 void FitLine3DByRegression(const LaneCloudPtr &source, Polynomia &parameters);
+
+void NormalLine(const LaneCloudPtr &source, const double radius,
+                pcl::PointCloud<pcl::Normal>::Ptr &cloud_normals);
+
+void TangentLine(const LaneCloudPtr &source, const double radius,
+                 std::vector<pcl::ModelCoefficients::Ptr> &coefficients);
 
 }  // namespace smartlabel
