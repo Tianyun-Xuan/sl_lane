@@ -121,13 +121,13 @@ LaneCluster LaneFitting::initialize(const LaneCloudPtr& source) {
                                     coefficients[1]->values[5], 0.f);
   //(TODO) I am not sure the 4th element of the vector is 0 or 1
   Eigen::Vector4f center_start =
-      cluster.center_point -
       Eigen::Vector4f(cluster.start_point.x, cluster.start_point.y,
-                      cluster.start_point.z, cluster.center_point[3]);
+                      cluster.start_point.z, cluster.center_point[3]) -
+      cluster.center_point;
   Eigen::Vector4f center_end =
-      cluster.center_point -
       Eigen::Vector4f(cluster.end_point.x, cluster.end_point.y,
-                      cluster.end_point.z, cluster.center_point[3]);
+                      cluster.end_point.z, cluster.center_point[3]) -
+      cluster.center_point;
 
   cluster.start_point_tangent = start_point_tangent.dot(center_start) > 0
                                     ? start_point_tangent
@@ -419,9 +419,6 @@ void check_size(const std::vector<SLCloudPtr>& source,
   std::cout << flag << " total size: " << sum << std::endl;
 }
 
-void endpoint_match(const std::vector<LaneCluster>& clusters,
-                    std::vector<size_t>& cluster_id) {}
-
 void LaneFitting::fit(const std::vector<SLCloudPtr>& source,
                       std::vector<LaneSegment>& result) {
   // Collect Lane Points and Lane + Ground Points
@@ -441,19 +438,38 @@ void LaneFitting::fit(const std::vector<SLCloudPtr>& source,
               return a.timestamp < b.timestamp;
             });
 
-#ifdef DEBUG
+  std::vector<EndPoint> end_points;
   for (size_t i = 0; i < clusters.size(); ++i) {
-    pcl::io::savePCDFileBinary(
-        "/home/demo/repos/sl_lane/data/clusters/" + std::to_string(i) + ".pcd",
-        *clusters[i].cloud);
+    if (clusters[i].deplacement * clusters[i].ratio < 2.f) {
+      continue;
+    }
+#ifdef DEBUG
     pcl::io::savePCDFileBinary(
         "/home/demo/repos/sl_lane/data/debug/" + std::to_string(i) + ".pcd",
         *clusters[i].cloud_smoothed);
-    std::cout << "cluster " << i
-              << " start_tangent: " << clusters[i].start_point_tangent
-              << " end_tangent: " << clusters[i].end_point_tangent << std::endl;
-  }
 #endif
+    {
+      EndPoint start_point;
+      start_point.point = clusters[i].start_point;
+      start_point.tangent = clusters[i].start_point_tangent;
+      start_point.cluster_id = i;
+      start_point.is_start = 1;
+      end_points.push_back(start_point);
+    }
+    {
+      EndPoint end_point;
+      end_point.point = clusters[i].end_point;
+      end_point.tangent = clusters[i].end_point_tangent;
+      end_point.cluster_id = i;
+      end_point.is_start = 0;
+      end_points.push_back(end_point);
+    }
+  }
+  std::vector<int> connect_flags;
+  solve_km(end_points, connect_flags);
+  for (size_t i = 0; i < connect_flags.size(); ++i) {
+    std::cout << i << "," << connect_flags[i] << std::endl;
+  }
   //   Hoff ref_params;
   //   Eigen::Vector4f ref_center;
 

@@ -59,7 +59,7 @@ bool find_end_point(const LaneCloudPtr &source, Point_Lane &start_point,
 struct DBscan_Parameters {
   // dbscan parameters
   double neighbour_radius = 0.2;
-  size_t minPts_in_neighbour = 20;
+  size_t minPts_in_neighbour = 10;
   size_t min_pts_per_cluster = 40;
 };
 

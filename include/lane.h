@@ -1,4 +1,5 @@
-#pragma once
+#ifndef LANE_H
+#define LANE_H
 // clang-format off
 #include "point_type.h"
 // clang-format on
@@ -20,6 +21,7 @@
 #include <vector>
 
 #include "geometry_util.h"
+#include "loss.h"
 #include "sg_filter.h"
 
 // namespace bg = boost::geometry;
@@ -128,3 +130,5 @@ class LaneFitting {
 };
 
 }  // namespace smartlabel
+
+#endif  // SMARTLABEL_LANE_FITTING_H_
