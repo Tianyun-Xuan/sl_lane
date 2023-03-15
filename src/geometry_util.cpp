@@ -154,7 +154,7 @@ void dbscan(const DBscan_Parameters &parameters, const LaneCloudPtr &source,
 
     size_t nn_size = kdtree_.radiusSearch(i, eps, nn_indices, nn_distances);
     if (nn_size < minPts) {
-      types[i] == NOISE;
+      types[i] = NOISE;
       continue;
     }
 
@@ -307,7 +307,7 @@ bool cloud_discretized(const LaneCloudPtr &source, float invterval, float tmin,
     int grid_idx = (point.t - tmin) * inv_step + 0.5f;
     if (grid_idx < 0) {
       grid_idx = 0;
-    } else if (grid_idx >= t_size) {
+    } else if (grid_idx >= int(t_size)) {
       grid_idx = t_size - 1;
     }
     xlist[grid_idx] += point.x;
@@ -384,4 +384,36 @@ void TangentLine(const LaneCloudPtr &source, const double radius,
     coefficients.push_back(end_tangent_coeff);
 }
 
+void hermite_interpolate_2points(const Point_Lane &p0, const Point_Lane &p1,
+                                 float k0, float k1, float interval_x,
+                                 LaneCloudPtr &dst) {
+  dst->clear();
+  if (p0.x > p1.x) {
+    return hermite_interpolate_2points(p1, p0, k1, k0, interval_x, dst);
+  }
+  float curr_x = p0.x;
+  float curr_z = p0.z;
+  float dx = p1.x - p0.x;
+  float dz = p1.z - p0.z;
+  // linear interpolation for height z
+  float dz_dx = dz / dx;
+  float interval_z = interval_x * dz_dx;
+
+  while (curr_x < p1.x) {
+    float a0 = (1 + 2 * (curr_x - p0.x) / (p1.x - p0.x)) *
+               pow(((curr_x - p1.x) / (p0.x - p1.x)), 2);
+    float a1 = (1 + 2 * (curr_x - p1.x) / (p0.x - p1.x)) *
+               pow(((curr_x - p0.x) / (p1.x - p0.x)), 2);
+    float b0 = (curr_x - p0.x) * pow(((curr_x - p1.x) / (p0.x - p1.x)), 2);
+    float b1 = (curr_x - p1.x) * pow(((curr_x - p0.x) / (p1.x - p0.x)), 2);
+    float curr_y = p0.y * a0 + p1.y * a1 + b0 * k0 + b1 * k1;
+    Point_Lane tmp_point;
+    tmp_point.x = curr_x;
+    tmp_point.y = curr_y;
+    tmp_point.z = curr_z;
+    dst->push_back(tmp_point);
+    curr_x += interval_x;
+    curr_z += interval_z;
+  }
+}
 }  // namespace smartlabel

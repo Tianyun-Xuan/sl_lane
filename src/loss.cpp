@@ -85,4 +85,35 @@ void solve_km(const std::vector<EndPoint>& inputs, std::vector<int>& result) {
     }
   }
 }
+
+double hermite_interpolate_loss(const EndPoint& a, const EndPoint& b) {
+  //(TODO parameters)
+  const double interval = 0.1;
+  const double distance_threshold = 80.f;
+  const double distance_threshold_square =
+      distance_threshold * distance_threshold;
+
+  // To avoid the tangent of two point are perpendicular
+  if (std::abs(a.tangent.dot(b.tangent)) < 0.1) {
+    return 1.f;
+  }
+
+  // interpolate
+  double distance;
+  {  // check slope
+    const double k1 =
+        a.tangent[0] != 0.f ? a.tangent[1] / a.tangent[0] : 1000.f;
+    const double k2 =
+        b.tangent[0] != 0.f ? b.tangent[1] / b.tangent[0] : 1000.f;
+    LaneCloudPtr interpolated_cloud(new LaneCloud);
+    hermite_interpolate_2points(a.point, b.point, k1, k2, interval,
+                                interpolated_cloud);
+    distance = accumulate_distance(interpolated_cloud);
+  }
+
+  float loss = (distance_threshold_square - distance * distance) /
+               distance_threshold_square;
+
+  return loss < 0.f ? 0.f : loss;
+}
 }  // namespace smartlabel

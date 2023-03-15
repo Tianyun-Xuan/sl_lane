@@ -451,7 +451,7 @@ void LaneFitting::fit(const std::vector<SLCloudPtr>& source,
     {
       EndPoint start_point;
       start_point.point = clusters[i].start_point;
-      start_point.tangent = clusters[i].start_point_tangent;
+      start_point.tangent = clusters[i].start_point_tangent.normalized();
       start_point.cluster_id = i;
       start_point.is_start = 1;
       end_points.push_back(start_point);
@@ -459,7 +459,7 @@ void LaneFitting::fit(const std::vector<SLCloudPtr>& source,
     {
       EndPoint end_point;
       end_point.point = clusters[i].end_point;
-      end_point.tangent = clusters[i].end_point_tangent;
+      end_point.tangent = clusters[i].end_point_tangent.normalized();
       end_point.cluster_id = i;
       end_point.is_start = 0;
       end_points.push_back(end_point);

@@ -80,4 +80,8 @@ void NormalLine(const LaneCloudPtr &source, const double radius,
 void TangentLine(const LaneCloudPtr &source, const double radius,
                  std::vector<pcl::ModelCoefficients::Ptr> &coefficients);
 
+void hermite_interpolate_2points(const Point_Lane &p0, const Point_Lane &p1,
+                                 float k0, float k1, float interval_x,
+                                 LaneCloudPtr &dst);
+
 }  // namespace smartlabel

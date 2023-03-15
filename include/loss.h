@@ -3,9 +3,10 @@
 // clang-format off
 #include "point_type.h"
 // clang-format on
-#include <munker.hpp>
 #include <Eigen/Core>
+#include <munker.hpp>
 
+#include "geometry_util.h"
 namespace smartlabel {
 
 struct EndPoint {
@@ -22,6 +23,7 @@ double angle_loss(const EndPoint& a, const EndPoint& b);
 double time_loss(const EndPoint& a, const EndPoint& b);
 double connect_loss(const EndPoint& a, const EndPoint& b);
 double loss_function(const EndPoint& a, const EndPoint& b);
+double hermite_interpolate_loss(const EndPoint& a, const EndPoint& b);
 
 void solve_km(const std::vector<EndPoint>& inputs, std::vector<int>& result);
 }  // namespace smartlabel

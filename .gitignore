@@ -31,11 +31,5 @@
 *.out
 *.app
 
-Seg_binary/
-diff/
-down.pcd
-fine.pcd
-fit.pcd
-frames/
-hoff.tiff
-pcd/
+data/
+build/
