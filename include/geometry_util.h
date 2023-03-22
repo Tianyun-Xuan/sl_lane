@@ -26,7 +26,18 @@ struct Polynomia {
   double d;
   Eigen::Vector4f centroid;
   // y = a * x + b * x^2 + c * x^3 + d
-  double y(double x) { return d + a * x + b * x * x + c * x * x * x; }
+  double y(double x) const {
+    const double cx = x - centroid[0];
+    return a * cx + b * cx * cx + c * cx * cx * cx + d + centroid[1];
+  }
+  
+  Point_Lane projection(double x) const {
+    Point_Lane point;
+    point.x = x;
+    point.y = y(point.x);
+    point.z = centroid[2];
+    return point;
+  }
 };
 
 struct Hoff {
@@ -58,7 +69,7 @@ bool find_end_point(const LaneCloudPtr &source, Point_Lane &start_point,
 
 struct DBscan_Parameters {
   // dbscan parameters
-  double neighbour_radius = 0.2;
+  double neighbour_radius = 0.3;
   size_t minPts_in_neighbour = 10;
   size_t min_pts_per_cluster = 40;
 };
@@ -83,5 +94,29 @@ void TangentLine(const LaneCloudPtr &source, const double radius,
 void hermite_interpolate_2points(const Point_Lane &p0, const Point_Lane &p1,
                                  float k0, float k1, float interval_x,
                                  LaneCloudPtr &dst);
+void linearity_filter(const LaneCloudPtr &src, LaneCloudPtr &dst,
+                      const float linearity_th, const float linearity_raidus);
+
+template <typename PointT>
+double hausdorff_distance(const typename pcl::PointCloud<PointT>::Ptr &src,
+                          const typename pcl::PointCloud<PointT>::Ptr &dst) {
+  pcl::KdTreeFLANN<PointT> kdtree;
+  kdtree.setInputCloud(dst);
+  std::vector<int> pointIdxNKNSearch(1);
+  std::vector<float> pointNKNSquaredDistance(1);
+  double max_distance = 0;
+  for (size_t i = 0; i < src->size(); ++i) {
+    if (!pcl_isfinite(src->points[i].x)) {
+      continue;
+    }
+    if (kdtree.nearestKSearch(src->points[i], 1, pointIdxNKNSearch,
+                              pointNKNSquaredDistance) > 0) {
+      if (pointNKNSquaredDistance[0] > max_distance) {
+        max_distance = pointNKNSquaredDistance[0];
+      }
+    }
+  }
+  return sqrt(max_distance);
+}
 
 }  // namespace smartlabel

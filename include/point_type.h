@@ -1,7 +1,7 @@
 #pragma once
 #define BOOST_MPL_CFG_NO_PREPROCESSED_HEADERS
-#define BOOST_MPL_LIMIT_VECTOR_SIZE 30  // or whatever you need
-#define BOOST_MPL_LIMIT_MAP_SIZE 30     // or whatever you need
+#define BOOST_MPL_LIMIT_VECTOR_SIZE 40  // or whatever you need
+#define BOOST_MPL_LIMIT_MAP_SIZE 40     // or whatever you need
 #define PCL_NO_PRECOMPILE
 #include <pcl/io/pcd_io.h>
 #include <pcl/pcl_macros.h>
@@ -45,6 +45,14 @@ struct EIGEN_ALIGN16 Point_Auto_Label {
   float relabel_2nd_confidence;
   // Reserved
   std::int32_t reserved;
+  // new add
+  std::uint16_t is_curb;         // 1: is curb; 0: is not curb
+  std::uint16_t is_seperation;   // 1: is seperation; 0: is not seperation;
+  std::uint16_t is_inside_curb;  // 1: inside; 0: outside
+  std::int32_t
+      lane_id;  // reverse lane: -1, -2, ...; 0 means not a laneline point
+  std::uint16_t is_laneline;    // 1: laneline point; 0: not laneline pointk
+  std::uint16_t is_motion_obj;  // 1: is motion obj; 0: is not motion obj
   // Aligned
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
   // PCL_MAKE_ALIGNED_OPERATOR_NEW  // pcl 1.12
@@ -55,11 +63,30 @@ struct EIGEN_ALIGN16 Point_Lane {
   float intensity;
   float t;
   double timestamp;
+  std::uint32_t lane_id;
   // Aligned
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
   // PCL_MAKE_ALIGNED_OPERATOR_NEW  // pcl 1.12
 };
-
+struct EIGEN_ALIGN16 Point_Seg_binary {
+  PCL_ADD_POINT4D;
+  double timestamp;
+  uint16_t intensity;
+  uint8_t line_flag;
+  uint8_t flags;
+  uint16_t elongation;
+  uint16_t scan_id;
+  uint8_t scan_idx;
+  uint32_t is_2nd_return;
+  uint32_t dt_label;
+  int32_t line_group_ID;
+  uint32_t Line_ID;
+  uint32_t line_type;
+  uint32_t line_status;
+  // Aligned
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+  // PCL_MAKE_ALIGNED_OPERATOR_NEW  // pcl 1.12
+};
 namespace pcl {
 struct EIGEN_ALIGN16 Point_Mapping {
   PCL_ADD_POINT4D;
@@ -187,6 +214,12 @@ POINT_CLOUD_REGISTER_POINT_STRUCT(
     (std::uint32_t, relabel_2nd, relabel_2nd)
     (float, relabel_2nd_confidence,relabel_2nd_confidence)
     (std::int32_t, reserved, reserved)
+    (std::uint16_t, is_curb, is_curb)
+    (std::uint16_t, is_seperation, is_seperation)
+    (std::uint16_t, is_inside_curb, is_inside_curb)
+    (std::int32_t, lane_id, lane_id)
+    (std::uint16_t, is_laneline, is_laneline)
+    (std::uint16_t, is_motion_obj, is_motion_obj)
 )
 
 POINT_CLOUD_REGISTER_POINT_STRUCT(
@@ -285,4 +318,22 @@ POINT_CLOUD_REGISTER_POINT_STRUCT (
   (float, intensity,intensity)
   (float, t, t)
   (double, timestamp, timestamp)
+  (std::uint32_t, lane_id, lane_id)
+)
+
+POINT_CLOUD_REGISTER_POINT_STRUCT(
+  Point_Seg_binary,
+  (double  , timestamp, timestamp)
+  (uint16_t, intensity, intensity)
+  (uint8_t ,  line_flag,  line_flag)
+  (uint8_t ,  flags,  flags)
+  (uint16_t,  elongation,  elongation)
+  (uint16_t, scan_id, scan_id)
+  (uint8_t ,  scan_idx,  scan_idx)
+  (uint32_t, is_2nd_return, is_2nd_return)
+  (uint32_t, dt_label, dt_label)
+  (int32_t , line_group_ID, line_group_ID)
+  (uint32_t, Line_ID, Line_ID)
+  (uint32_t, line_type, line_type)
+  (uint32_t, line_status, line_status)
 )

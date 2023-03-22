@@ -46,7 +46,7 @@ class Matrix {
   }
   inline size_t columns() const { return m_columns; }
   inline size_t rows() const { return m_rows; }
-  
+
   friend std::ostream &operator<<(std::ostream &os, const Matrix &matrix) {
     os << "Matrix:" << std::endl;
     for (size_t row = 0; row < matrix.rows(); row++) {

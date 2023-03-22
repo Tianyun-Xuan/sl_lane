@@ -415,5 +415,52 @@ void hermite_interpolate_2points(const Point_Lane &p0, const Point_Lane &p1,
     curr_x += interval_x;
     curr_z += interval_z;
   }
+  
+  dst->push_back(p1);
+}
+
+void linearity_filter(const LaneCloudPtr &src, LaneCloudPtr &dst,
+                      const float linearity_th, const float linearity_raidus) {
+  pcl::KdTreeFLANN<Point_Lane> kdtree;
+  kdtree.setInputCloud(src);
+
+  std::vector<float> linearity_list;
+  linearity_list.resize(src->size(), 0);
+
+#pragma omp parallel for
+  for (size_t i = 0; i < src->size(); ++i) {
+    auto &p = src->at(i);
+    std::vector<int> indices;
+    std::vector<float> distance_sq;
+    kdtree.radiusSearch(p, linearity_raidus, indices, distance_sq);
+    float linearity = 0;
+    if (indices.size() >= 3) {
+      double sx2{0}, sy2{0}, sz2{0}, sxy{0}, sxz{0}, syz{0};
+      for (size_t j = 0; j < indices.size(); ++j) {
+        const auto &p2 = src->at(indices[j]);
+        float dx = p2.x - p.x;
+        float dy = p2.y - p.y;
+        float dz = p2.z - p.z;
+        sx2 += dx * dx;
+        sy2 += dy * dy;
+        sz2 += dz * dz;
+        sxy += dx * dy;
+        sxz += dx * dz;
+        syz += dy * dz;
+      }
+      Eigen::Matrix3d J;
+      J << sx2, sxy, sxz, sxy, sy2, syz, sxz, syz, sz2;
+      Eigen::JacobiSVD<Eigen::MatrixXd> svd(J, Eigen::ComputeFullU);
+      auto W = svd.singularValues();
+      linearity = (W(0) - W(1)) / W(0);
+    }
+    linearity_list[i] = linearity;
+  }
+
+  for (size_t i = 0; i < src->size(); ++i) {
+    if (linearity_list[i] > linearity_th) {
+      dst->push_back(src->at(i));
+    }
+  }
 }
 }  // namespace smartlabel

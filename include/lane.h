@@ -35,11 +35,26 @@ enum LaneType {
   CURVE = 2,
 };
 
-struct LaneSegment {
-  Point_Lane start_point_;
-  Point_Lane end_point_;
-  Eigen::Vector4f& centroid_;
-  Polynomia parameters_;
+class LaneSegment {
+ public:
+  LaneSegment(const LaneCloudPtr& cloud);
+  ~LaneSegment() = default;
+
+  LaneCloudPtr cloud;
+  LaneCloudPtr cloud_smoothed;
+  Point_Lane start_point;
+  Point_Lane end_point;
+  Polynomia parameters;
+
+  LaneCloudPtr print(const double step);
+
+  bool in_interval(const double x) const {
+    return (x >= start_point.x && x <= end_point.x);
+  }
+
+  double y(const double x) const { return parameters.y(x); }
+
+  friend LaneSegment operator+=(LaneSegment& lhs, const LaneSegment& rhs);
 };
 
 struct LaneCluster {
@@ -115,6 +130,10 @@ class LaneFitting {
                          const std::vector<LaneCluster>& clusters,
                          std::vector<SLCloudPtr>& candidates);
 
+  void extract_candidate(const std::vector<SLCloudPtr>& source,
+                         const std::vector<LaneSegment>& segments,
+                         std::vector<SLCloudPtr>& candidates);
+
   void ground_map(const LaneCloudPtr& ground_cloud);
 
   // SLCloudPtr select_candidate(const SLCloudPtr& candidates);
@@ -126,7 +145,7 @@ class LaneFitting {
                                const double radius, const size_t threshold);
 
   void fit(const std::vector<SLCloudPtr>& source,
-           std::vector<LaneSegment>& result);
+           std::vector<SLCloudPtr>& result);
 };
 
 }  // namespace smartlabel
