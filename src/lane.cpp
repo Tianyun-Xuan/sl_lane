@@ -515,12 +515,12 @@ void LaneFitting::fit(const std::vector<SLCloudPtr>& source,
   std::vector<EndPoint> end_points;
   for (size_t i = 0; i < clusters.size(); ++i) {
 #ifdef DEBUG
-    // pcl::io::savePCDFileBinary(
-    //     "/home/demo/repos/sl_lane/data/clusters/" + std::to_string(i) +
-    //     ".pcd", *clusters[i].cloud);
-    // pcl::io::savePCDFileBinary(
-    //     "/home/demo/repos/sl_lane/data/debug/" + std::to_string(i) + ".pcd",
-    //     *clusters[i].cloud_smoothed);
+    pcl::io::savePCDFileBinary(
+        "/home/demo/repos/sl_lane/data/clusters/" + std::to_string(i) + ".pcd",
+        *clusters[i].cloud);
+    pcl::io::savePCDFileBinary(
+        "/home/demo/repos/sl_lane/data/debug/" + std::to_string(i) + ".pcd",
+        *clusters[i].cloud_smoothed);
 #endif
     {
       EndPoint start_point;
@@ -552,11 +552,11 @@ void LaneFitting::fit(const std::vector<SLCloudPtr>& source,
     *cloud += *connect_cloud[i];
     LaneSegment segment(cloud);
     segments.push_back(segment);
-    // #ifdef DEBUG
-    //     pcl::io::savePCDFileBinary(
-    //         "/home/demo/repos/sl_lane/data/straight/" + std::to_string(i) +
-    //         ".pcd", *cloud);
-    // #endif
+#ifdef DEBUG
+    pcl::io::savePCDFileBinary(
+        "/home/demo/repos/sl_lane/data/straight/" + std::to_string(i) + ".pcd",
+        *cloud);
+#endif
   }
 
   // use hausdorff distance to merge line segments
@@ -598,6 +598,7 @@ void LaneFitting::fit(const std::vector<SLCloudPtr>& source,
     auto intensity_filtered_cloud =
         adapte_intesnity_filter(candidates[i], 1, 5);
     for (const auto& point : intensity_filtered_cloud->points) {
+      // mamamiya
       points_to_label[point.frame_index].insert(point.point_index);
     }
   }
@@ -607,6 +608,7 @@ void LaneFitting::fit(const std::vector<SLCloudPtr>& source,
     // Deep copy
     SLCloudPtr res_cloud(new SLCloud(*source[i]));
     for (auto& point : res_cloud->points) {
+      // mamamiya
       if (points_to_label[point.frame_index].count(point.point_index)) {
         point.relabel = this->params_.value_lane_type;
         point.motion_type = this->params_.value_motion_type;

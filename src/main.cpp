@@ -83,7 +83,7 @@ void test_initialize() {
   }
 }
 void func() {
-  const std::string map_dir = "/home/demo/repos/sl_lane/data/frames/0001/";
+  const std::string map_dir = "/home/demo/repos/sl_lane/data/frames/0002/";
   // clear and reserve
   std::vector<std::string> paths{};
   for (auto& item : fs::directory_iterator(map_dir)) {
@@ -115,7 +115,7 @@ void func() {
 
   for (size_t i = 0; i < result.size(); ++i) {
     pcl::io::savePCDFileBinary(
-        "/home/demo/repos/sl_lane/data/res/0001/" + std::to_string(i) + ".pcd",
+        "/home/demo/repos/sl_lane/data/res/0002/" + std::to_string(i) + ".pcd",
         *result[i]);
   }
 }
@@ -536,7 +536,7 @@ void benchmark() {
   // compare
   // 4 steps
   // 0-50, 50-100, 100-150, > 150
-  PointCountMap counts(4);
+  SampleMap counts;
 
   for (size_t i = 0; i < paths.size(); ++i) {
     std::string path = res_dir + "/" + paths[i] + ".pcd";
@@ -553,7 +553,7 @@ void benchmark() {
 
     assert(cloud->size() == label_cloud->size());
 
-    PointCountMap vs_params_temp(4);
+    SampleCount vs_params_temp(4);
 
     // compare
     for (size_t j = 0; j < cloud->size(); ++j) {
@@ -584,32 +584,58 @@ void benchmark() {
     fdescriptor << paths[i] << std::endl;
     fdescriptor << vs_params_temp << std::endl;
     fdescriptor << "-------------------------------------------" << std::endl;
-    counts += vs_params_temp;
+    counts.push_back(vs_params_temp);
   }
 
   // print total statistics for each interval
-  for (size_t i = 0; i < 4; ++i) {
+  auto total_sample = counts.total();
+  for (size_t i = 0; i < total_sample.size(); ++i) {
     fdescriptor << "Interval: " << i << std::endl;
-    fdescriptor << "TP: " << counts[i].tp << std::endl;
-    fdescriptor << "FP: " << counts[i].fp << std::endl;
-    fdescriptor << "FN: " << counts[i].fn << std::endl;
-    fdescriptor << "Precision: " << counts[i].precision() << std::endl;
-    fdescriptor << "Recall: " << counts[i].recall() << std::endl;
-    fdescriptor << "F1 score: " << counts[i].f1_score() << std::endl;
-    fdescriptor << "Iou: " << counts[i].iou() << std::endl;
+    fdescriptor << "TP: " << total_sample[i].tp << std::endl;
+    fdescriptor << "FP: " << total_sample[i].fp << std::endl;
+    fdescriptor << "FN: " << total_sample[i].fn << std::endl;
+    fdescriptor << "Precision: " << total_sample[i].precision() << std::endl;
+    fdescriptor << "Recall: " << total_sample[i].recall() << std::endl;
+    fdescriptor << "F1 score: " << total_sample[i].f1_score() << std::endl;
+    fdescriptor << "Iou: " << total_sample[i].iou() << std::endl;
     fdescriptor << "-------------------------------------------" << std::endl;
   }
 
   // print total statistics
-  auto total = counts.total();
+  auto global_sample = total_sample.total();
   fdescriptor << "Total" << std::endl;
-  fdescriptor << "TP: " << total.tp << std::endl;
-  fdescriptor << "FP: " << total.fp << std::endl;
-  fdescriptor << "FN: " << total.fn << std::endl;
-  fdescriptor << "Precision: " << total.precision() << std::endl;
-  fdescriptor << "Recall: " << total.recall() << std::endl;
-  fdescriptor << "F1 score: " << total.f1_score() << std::endl;
-  fdescriptor << "Iou: " << total.iou() << std::endl;
+  fdescriptor << "TP: " << global_sample.tp << std::endl;
+  fdescriptor << "FP: " << global_sample.fp << std::endl;
+  fdescriptor << "FN: " << global_sample.fn << std::endl;
+  fdescriptor << "Precision: " << global_sample.precision() << std::endl;
+  fdescriptor << "Recall: " << global_sample.recall() << std::endl;
+  fdescriptor << "F1 score: " << global_sample.f1_score() << std::endl;
+  fdescriptor << "Iou: " << global_sample.iou() << std::endl;
+  fdescriptor << "-------------------------------------------" << std::endl;
+
+  // remove first and last 20 frames
+  auto sample_20 = counts.get_samples(50, counts.size() - 50);
+  for (size_t i = 0; i < sample_20.size(); ++i) {
+    fdescriptor << "Interval: " << i << std::endl;
+    fdescriptor << "TP: " << sample_20[i].tp << std::endl;
+    fdescriptor << "FP: " << sample_20[i].fp << std::endl;
+    fdescriptor << "FN: " << sample_20[i].fn << std::endl;
+    fdescriptor << "Precision: " << sample_20[i].precision() << std::endl;
+    fdescriptor << "Recall: " << sample_20[i].recall() << std::endl;
+    fdescriptor << "F1 score: " << sample_20[i].f1_score() << std::endl;
+    fdescriptor << "Iou: " << sample_20[i].iou() << std::endl;
+    fdescriptor << "-------------------------------------------" << std::endl;
+  }
+
+  auto sample_20_global = sample_20.total();
+  fdescriptor << "Total" << std::endl;
+  fdescriptor << "TP: " << sample_20_global.tp << std::endl;
+  fdescriptor << "FP: " << sample_20_global.fp << std::endl;
+  fdescriptor << "FN: " << sample_20_global.fn << std::endl;
+  fdescriptor << "Precision: " << sample_20_global.precision() << std::endl;
+  fdescriptor << "Recall: " << sample_20_global.recall() << std::endl;
+  fdescriptor << "F1 score: " << sample_20_global.f1_score() << std::endl;
+  fdescriptor << "Iou: " << sample_20_global.iou() << std::endl;
   fdescriptor << "-------------------------------------------" << std::endl;
 
   fdescriptor.close();
@@ -647,8 +673,8 @@ int main(int argc, char* argv[]) {
   // test_loss();
   // test_mismatch();
   // test_connected_match();
-  func();
-  // benchmark();
+  // func();
+  benchmark();
   // test_fit_curve();
   // test_hausdorff_distance();
   // temp_relabel();
