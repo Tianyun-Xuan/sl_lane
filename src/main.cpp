@@ -14,6 +14,34 @@
 // typedef bg::model::linestring<point_t> linestring_t;
 namespace fs = std::experimental::filesystem;
 
+template <typename PointT>
+std::vector<typename pcl::PointCloud<PointT>::Ptr> load_pcd(
+    const std::string& dir) {
+  // clear and reserve
+  std::vector<std::string> paths{};
+  for (auto& item : fs::directory_iterator(dir)) {
+    fs::path addr = item;
+    if (addr.extension() == ".pcd") {
+      fs::path filename = addr.stem();
+      paths.emplace_back(filename);
+    }
+  }
+  std::sort(paths.begin(), paths.end(),
+            [](const std::string& a, const std::string& b) -> bool {
+              return std::stoi(a) < std::stoi(b);
+            });
+
+  std::vector<typename pcl::PointCloud<PointT>::Ptr> clouds{};
+  for (const auto& filename : paths) {
+    std::string frames_file = dir + "/" + filename + ".pcd";
+    typename pcl::PointCloud<PointT>::Ptr cloud(new pcl::PointCloud<PointT>);
+    pcl::io::loadPCDFile(frames_file, *cloud);
+    clouds.push_back(cloud);
+  }
+
+  return clouds;
+}
+
 using namespace smartlabel;
 
 void test_FitLine1DByRegression() {
@@ -83,7 +111,7 @@ void test_initialize() {
   }
 }
 void func() {
-  const std::string map_dir = "/home/demo/repos/sl_lane/data/frames/0002/";
+  const std::string map_dir = "/home/demo/repos/sl_lane/data/free_space/";
   // clear and reserve
   std::vector<std::string> paths{};
   for (auto& item : fs::directory_iterator(map_dir)) {
@@ -115,7 +143,7 @@ void func() {
 
   for (size_t i = 0; i < result.size(); ++i) {
     pcl::io::savePCDFileBinary(
-        "/home/demo/repos/sl_lane/data/res/0002/" + std::to_string(i) + ".pcd",
+        "/home/demo/repos/sl_lane/data/res/" + std::to_string(i) + ".pcd",
         *result[i]);
   }
 }
@@ -469,34 +497,6 @@ void test_hausdorff_distance() {
   std::cout << cost << std::endl;
 }
 
-template <typename PointT>
-std::vector<typename pcl::PointCloud<PointT>::Ptr> load_pcd(
-    const std::string& dir) {
-  // clear and reserve
-  std::vector<std::string> paths{};
-  for (auto& item : fs::directory_iterator(dir)) {
-    fs::path addr = item;
-    if (addr.extension() == ".pcd") {
-      fs::path filename = addr.stem();
-      paths.emplace_back(filename);
-    }
-  }
-  std::sort(paths.begin(), paths.end(),
-            [](const std::string& a, const std::string& b) -> bool {
-              return std::stoi(a) < std::stoi(b);
-            });
-
-  std::vector<SLCloudPtr> clouds{};
-  for (const auto& filename : paths) {
-    std::string frames_file = dir + "/" + filename + ".pcd";
-    typename pcl::PointCloud<PointT>::Ptr cloud(new pcl::PointCloud<PointT>);
-    pcl::io::loadPCDFile(frames_file, *cloud);
-    clouds.push_back(cloud);
-  }
-
-  return clouds;
-}
-
 void benchmark() {
   const std::string res_dir = "/home/demo/repos/sl_lane/data/res/0002";
   const std::string label_dir = "/home/demo/repos/sl_lane/data/Seg_binary";
@@ -651,9 +651,12 @@ void temp_relabel() {
   for (size_t i = 0; i < clouds.size(); ++i) {
     for (size_t j = 0; j < clouds[i]->size(); ++j) {
       if (clouds[i]->points[j].relabel == 10) {
-        difei[i]->points[j].is_laneline = true;
+        difei[i]->points[j].is_laneline = 1;
       } else {
-        difei[i]->points[j].is_laneline = false;
+        if (difei[i]->points[j].is_laneline) {
+          difei[i]->points[j].ground_flag = 1;
+        }
+        difei[i]->points[j].is_laneline = 0;
       }
     }
   }
@@ -673,8 +676,8 @@ int main(int argc, char* argv[]) {
   // test_loss();
   // test_mismatch();
   // test_connected_match();
-  // func();
-  benchmark();
+  func();
+  // benchmark();
   // test_fit_curve();
   // test_hausdorff_distance();
   // temp_relabel();

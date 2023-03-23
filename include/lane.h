@@ -82,7 +82,9 @@ struct FitParameters {
   // semantic filter parameters
   uint32_t value_motion_type = 2;
   uint32_t value_lane_type = 10;
-  uint32_t value_ground_type = 1;
+  uint32_t value_is_laneline = 1;
+  uint32_t value_ground_flag = 1;
+  uint32_t value_inside_curb = 1;
   float value_original_distance = 100.f;
   double x_step = 2;
   double y_step = 1;
@@ -109,7 +111,12 @@ class LaneFitting {
 
   bool is_lane(const Point_Auto_Label& point);
   bool is_ground(const Point_Auto_Label& point);
+  bool inside_curb(const Point_Auto_Label& point);
+
+
+
   void label_filter(const std::vector<SLCloudPtr>& source,
+                    std::vector<SLCloudPtr>& inside_curb_clouds,
                     const LaneCloudPtr& lane_cloud,
                     const LaneCloudPtr& ground_cloud);
   void initialize(const std::vector<LaneCloudPtr>& source,

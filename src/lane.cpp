@@ -43,48 +43,65 @@ LaneCloudPtr LaneSegment::print(const double step) {
 }
 
 bool LaneFitting::is_lane(const Point_Auto_Label& point) {
-  return point.motion_type == this->params_.value_motion_type &&
-         point.semantic_3d_label == this->params_.value_lane_type &&
-         original_dst(point) < this->params_.value_original_distance;
+  return point.is_laneline == this->params_.value_is_laneline;
 }
 
 bool LaneFitting::is_ground(const Point_Auto_Label& point) {
-  return point.motion_type == this->params_.value_motion_type &&
-         point.semantic_3d_label == this->params_.value_ground_type &&
-         original_dst(point) < this->params_.value_original_distance;
+  return point.ground_flag == this->params_.value_ground_flag;
+}
+
+bool LaneFitting::inside_curb(const Point_Auto_Label& point) {
+  return point.is_inside_curb == this->params_.value_inside_curb;
 }
 
 void LaneFitting::label_filter(const std::vector<SLCloudPtr>& source,
+                               std::vector<SLCloudPtr>& inside_curb_clouds,
                                const LaneCloudPtr& lane_cloud,
                                const LaneCloudPtr& ground_cloud) {
+  // only take care of points inside curb
+  // using the field [is_inside_curb]
+  // all the points inside curb is divided into three parts
+  // 1. ground points with [ground_flag] = 1
+  // 2. possible lane points with [is_laneline] = 1
+  // 3. possible object points with [is_motion_obj] = 1
+
+  // output will be three parts also
+  // 1. lane points which are used to fit lane [is_inside_curb == 1 &&
+  // is_laneline == 1]
+  // 2. ground points which are used to fit ground [is_inside_curb == 1 &&
+  // (ground_flag == 1 || semantic_3d_label == lane_type）]
+  // 3. possible lane points [is_inside_curb]
+
+  inside_curb_clouds.clear();
   lane_cloud->clear();
   ground_cloud->clear();
+
   for (const auto& cloud : source) {
+    SLCloudPtr inside_curb_cloud(new SLCloud);
+    inside_curb_clouds.push_back(inside_curb_cloud);
     for (const auto& point : cloud->points) {
-      m_x_max_ = std::fmax(m_x_max_, point.x);
-      m_x_min_ = std::fmin(m_x_min_, point.x);
-      m_y_max_ = std::fmax(m_y_max_, point.y);
-      m_y_min_ = std::fmin(m_y_min_, point.y);
-      if (is_lane(point)) {
-        Point_Lane lane_point;
-        lane_point.x = point.x;
-        lane_point.y = point.y;
-        lane_point.z = point.z;
-        lane_point.intensity = point.intensity;
-        lane_point.timestamp = point.timestamp;
-        lane_point.t = 0;
-        lane_cloud->push_back(lane_point);
-        ground_cloud->push_back(lane_point);
-      } else if (is_ground(point)) {
-        Point_Lane ground_point;
-        ground_point.x = point.x;
-        ground_point.y = point.y;
-        ground_point.z = point.z;
-        ground_point.intensity = point.intensity;
-        ground_point.timestamp = point.timestamp;
-        ground_point.t = 0;
-        ground_cloud->push_back(ground_point);
-        continue;
+      if (inside_curb(point)) {
+        // generate inside curb cloud
+        m_x_max_ = std::fmax(m_x_max_, point.x);
+        m_x_min_ = std::fmin(m_x_min_, point.x);
+        m_y_max_ = std::fmax(m_y_max_, point.y);
+        m_y_min_ = std::fmin(m_y_min_, point.y);
+
+        Point_Lane tmp;
+        tmp.x = point.x;
+        tmp.y = point.y;
+        tmp.z = point.z;
+        tmp.intensity = point.intensity;
+        tmp.timestamp = point.timestamp;
+        tmp.t = 0;
+        inside_curb_clouds[point.frame_index]->push_back(point);
+
+        if (is_lane(point)) {
+          lane_cloud->push_back(tmp);
+          ground_cloud->push_back(tmp);
+        } else if (is_ground(point)) {
+          ground_cloud->push_back(tmp);
+        }
       }
     }
   }
@@ -483,7 +500,8 @@ void LaneFitting::fit(const std::vector<SLCloudPtr>& source,
   // Collect Lane Points and Lane + Ground Points
   LaneCloudPtr filtered(new LaneCloud);
   LaneCloudPtr ground_cloud(new LaneCloud);
-  label_filter(source, filtered, ground_cloud);
+  std::vector<SLCloudPtr> inside_curb;
+  label_filter(source, inside_curb, filtered, ground_cloud);
 
   // generate height map and intensity map
   ground_map(ground_cloud);
@@ -588,11 +606,12 @@ void LaneFitting::fit(const std::vector<SLCloudPtr>& source,
   }
 #endif
 
+  // Only take care of points inside curb
   std::vector<SLCloudPtr> candidates;
-  extract_candidate(source, segments, candidates);
+  extract_candidate(inside_curb, segments, candidates);
 
   std::vector<std::unordered_set<size_t>> points_to_label(
-      source.size(), std::unordered_set<size_t>{});
+      inside_curb.size(), std::unordered_set<size_t>{});
 
   for (size_t i = 0; i < candidates.size(); ++i) {
     auto intensity_filtered_cloud =
@@ -609,12 +628,31 @@ void LaneFitting::fit(const std::vector<SLCloudPtr>& source,
     SLCloudPtr res_cloud(new SLCloud(*source[i]));
     for (auto& point : res_cloud->points) {
       // mamamiya
+      // I wont touch field relabel
+      // is_lane_line is a new field which should be exclusive with ground_flag
+      // and is_motion_obj [is_laneline, ground_flag, is_motion_obj]
+
+      // Once found [is_laneline = 1, ground_flag = 0, is_motion_obj = 0]
+      // Not found :
+      // [is_laneline = true, ground_flag = 0, is_motion_obj = 0]
+      // -> [is_laneline = false, ground_flag = 1, is_motion_obj = 0]
+      // [is_laneline = false, ground_flag = 1, is_motion_obj = 0]
+      // -> [is_laneline = false, ground_flag = 1,is_motion_obj = 0]
+      // [is_laneline = false, ground_flag = 0, is_motion_obj =1]
+      // -> [is_laneline = false, ground_flag = 0, is_motion_obj = 1]
+
       if (points_to_label[point.frame_index].count(point.point_index)) {
-        point.relabel = this->params_.value_lane_type;
+        point.is_laneline = this->params_.value_is_laneline;
+        point.ground_flag = 0;
+        point.is_motion_obj = 0;
         point.motion_type = this->params_.value_motion_type;
       } else {
-        if (point.relabel == this->params_.value_lane_type) {
-          point.relabel = this->params_.value_ground_type;
+        if (point.is_laneline == this->params_.value_is_laneline &&
+            point.ground_flag == 0 && point.is_motion_obj == 0) {
+          point.is_laneline = 0;
+          point.ground_flag = 1;
+          point.is_motion_obj = 0;
+          point.motion_type = this->params_.value_motion_type;
         }
       }
     }
